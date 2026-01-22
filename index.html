@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 Goal Bingo</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #f0f0f0; }
+        #setup { margin: 20px; }
+        .goal-input { display: block; margin: 10px auto; width: 300px; padding: 5px; }
+        #game { display: none; margin: 20px; }
+        #goals-list { list-style: none; padding: 0; }
+        #goals-list li { margin: 10px; padding: 10px; background: #fff; border: 1px solid #ccc; cursor: pointer; }
+        #goals-list li.completed { background: #ddd; cursor: default; }
+        #bingo-card { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; max-width: 500px; margin: 0 auto; }
+        .cell { height: 100px; background: #fff; border: 1px solid #000; display: flex; align-items: center; justify-content: center; text-align: center; padding: 5px; word-break: break-word; }
+        .cell.filled { background: #aaffaa; }
+        .cell.free { background: #ffffaa; }
+        #celebration { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; color: #fff; font-size: 2em; z-index: 10; }
+        canvas { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 9; }
+        #end-message { display: none; font-size: 1.5em; color: red; }
+    </style>
+</head>
+<body>
+    <div id="setup">
+        <h1>Set Up Your 2026 Goal Bingo</h1>
+        <p>Enter your 24 goals for 2026 below:</p>
+        <div id="goals-inputs"></div>
+        <button id="start-game">Start Game</button>
+    </div>
+    <div id="game">
+        <h1>Your 2026 Goal Bingo</h1>
+        <h2>Remaining Goals:</h2>
+        <ul id="goals-list"></ul>
+        <h2>Bingo Card:</h2>
+        <div id="bingo-card"></div>
+        <button id="reset-game">Reset Game</button>
+        <div id="end-message">Game Over! You've completed all goals or the year has ended.</div>
+    </div>
+    <div id="celebration">Bingo! Great job!</div>
+    <canvas id="confetti-canvas"></canvas>
+
+    <script>
+        const STORAGE_KEY = 'goalBingo2026';
+        const GRID_SIZE = 5;
+        const TOTAL_SPOTS = GRID_SIZE * GRID_SIZE;
+        const TOTAL_GOALS = 24; // 25 spots minus 1 free
+        const CENTER_INDEX = Math.floor(TOTAL_SPOTS / 2);
+
+        let goals = [];
+        let card = Array(TOTAL_SPOTS).fill(null);
+        card[CENTER_INDEX] = 'FREE'; // Center is free
+
+        function initSetup() {
+            const inputsDiv = document.getElementById('goals-inputs');
+            for (let i = 0; i < TOTAL_GOALS; i++) {
+                const input = document.createElement('input');
+                input.className = 'goal-input';
+                input.placeholder = `Goal ${i + 1}`;
+                inputsDiv.appendChild(input);
+            }
+        }
+
+        function loadGame() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const data = JSON.parse(saved);
+                goals = data.goals || [];
+                card = data.card || Array(TOTAL_SPOTS).fill(null);
+                card[CENTER_INDEX] = 'FREE';
+            }
+            checkGameEnd();
+        }
+
+        function saveGame() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ goals, card }));
+        }
+
+        function renderGoalsList() {
+            const list = document.getElementById('goals-list');
+            list.innerHTML = '';
+            goals.forEach((goal, index) => {
+                if (goal && !goal.completed) {
+                    const li = document.createElement('li');
+                    li.textContent = goal.text;
+                    li.onclick = () => completeGoal(index);
+                    list.appendChild(li);
+                }
+            });
+        }
+
+        function renderCard() {
+            const bingoCard = document.getElementById('bingo-card');
+            bingoCard.innerHTML = '';
+            card.forEach((text, index) => {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                if (text) {
+                    cell.classList.add('filled');
+                    if (text === 'FREE') cell.classList.add('free');
+                    cell.textContent = text;
+                }
+                bingoCard.appendChild(cell);
+            });
+        }
+
+        function completeGoal(goalIndex) {
+            const goal = goals[goalIndex];
+            if (!goal || goal.completed) return;
+            goal.completed = true;
+
+            // Find random empty spot (not center)
+            const emptySpots = [];
+            card.forEach((spot, i) => {
+                if (i !== CENTER_INDEX && !spot) emptySpots.push(i);
+            });
+            if (emptySpots.length === 0) return;
+
+            const randomSpot = emptySpots[Math.floor(Math.random() * emptySpots.length)];
+            card[randomSpot] = goal.text;
+            saveGame();
+            renderGoalsList();
+            renderCard();
+            checkBingos();
+            checkBlackout();
+        }
+
+        function checkBingos() {
+            const lines = [];
+            // Rows
+            for (let i = 0; i < GRID_SIZE; i++) {
+                const row = card.slice(i * GRID_SIZE, (i + 1) * GRID_SIZE);
+                if (row.every(cell => cell !== null)) lines.push('row');
+            }
+            // Columns
+            for (let i = 0; i < GRID_SIZE; i++) {
+                const col = [];
+                for (let j = 0; j < GRID_SIZE; j++) col.push(card[j * GRID_SIZE + i]);
+                if (col.every(cell => cell !== null)) lines.push('col');
+            }
+            // Diagonals
+            const diag1 = [], diag2 = [];
+            for (let i = 0; i < GRID_SIZE; i++) {
+                diag1.push(card[i * GRID_SIZE + i]);
+                diag2.push(card[i * GRID_SIZE + (GRID_SIZE - 1 - i)]);
+            }
+            if (diag1.every(cell => cell !== null)) lines.push('diag');
+            if (diag2.every(cell => cell !== null)) lines.push('diag');
+
+            if (lines.length > 0) showCelebration();
+        }
+
+        function checkBlackout() {
+            if (card.every(cell => cell !== null)) {
+                showEndMessage(true);
+            }
+        }
+
+        function checkGameEnd() {
+            const now = new Date();
+            const endDate = new Date('2026-12-31T23:59:59');
+            if (now > endDate || card.every(cell => cell !== null)) {
+                showEndMessage(true);
+            } else {
+                showEndMessage(false);
+            }
+        }
+
+        function showEndMessage(show) {
+            document.getElementById('end-message').style.display = show ? 'block' : 'none';
+            if (show) {
+                document.getElementById('goals-list').innerHTML = '';
+                // Disable further interactions
+            }
+        }
+
+        function showCelebration() {
+            const celeb = document.getElementById('celebration');
+            celeb.style.display = 'flex';
+            launchConfetti();
+            setTimeout(() => {
+                celeb.style.display = 'none';
+            }, 3000);
+        }
+
+        // Simple confetti function
+        function launchConfetti() {
+            const canvas = document.getElementById('confetti-canvas');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            const ctx = canvas.getContext('2d');
+            const particles = [];
+            for (let i = 0; i < 100; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    r: Math.random() * 4 + 1,
+                    d: Math.random() * 100,
+                    color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+                    tilt: Math.random() * 10 - 10,
+                    tiltAngle: 0,
+                    tiltAngleIncrement: Math.random() * 0.07 + 0.05
+                });
+            }
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                particles.forEach(p => {
+                    p.tiltAngle += p.tiltAngleIncrement;
+                    p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2;
+                    p.tilt = Math.sin(p.tiltAngle) * 15;
+                    ctx.beginPath();
+                    ctx.lineWidth = p.r;
+                    ctx.strokeStyle = p.color;
+                    ctx.moveTo(p.x + p.tilt + p.r / 4, p.y);
+                    ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 4);
+                    ctx.stroke();
+                });
+                if (particles.some(p => p.y < canvas.height)) requestAnimationFrame(draw);
+            }
+            draw();
+            setTimeout(() => ctx.clearRect(0, 0, canvas.width, canvas.height), 3000);
+        }
+
+        document.getElementById('start-game').onclick = () => {
+            const inputs = document.querySelectorAll('.goal-input');
+            goals = Array.from(inputs).map(input => ({ text: input.value.trim(), completed: false })).filter(g => g.text);
+            if (goals.length !== TOTAL_GOALS) {
+                alert(`Please enter exactly ${TOTAL_GOALS} goals.`);
+                return;
+            }
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('game').style.display = 'block';
+            saveGame();
+            renderGoalsList();
+            renderCard();
+            checkGameEnd();
+        };
+
+        document.getElementById('reset-game').onclick = () => {
+            if (confirm('Reset the game? This will clear all progress.')) {
+                localStorage.removeItem(STORAGE_KEY);
+                location.reload();
+            }
+        };
+
+        initSetup();
+        loadGame();
+        if (goals.length > 0) {
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('game').style.display = 'block';
+            renderGoalsList();
+            renderCard();
+            checkGameEnd();
+        }
+    </script>
+</body>
+</html>
